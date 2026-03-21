@@ -1,0 +1,6 @@
+build/
+.claude/
+CLAUDE.md
+.esphome/
+secrets.yaml
+__pycache__/
