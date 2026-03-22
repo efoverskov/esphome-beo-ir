@@ -57,6 +57,12 @@ enum DecoderState : uint8_t {
   STATE_EXPECT_STOP,
 };
 
+enum RepeatMode : uint8_t {
+  REPEAT_RAW,
+  REPEAT_TRANSLATE,
+  REPEAT_SUPPRESS,
+};
+
 class BeoIRComponent : public Component {
  public:
   void setup() override;
@@ -66,8 +72,9 @@ class BeoIRComponent : public Component {
 
   void set_pin(uint8_t pin) { this->pin_ = pin; }
   void set_pio(int pio_num) { this->pio_ = pio_num ? pio1 : pio0; }
+  void set_repeat_mode(RepeatMode mode) { this->repeat_mode_ = mode; }
 
-  void add_on_command_callback(std::function<void(uint8_t, uint8_t, bool)> &&cb) {
+  void add_on_command_callback(std::function<void(uint8_t, uint8_t, bool, bool)> &&cb) {
     this->command_callback_.add(std::move(cb));
   }
 
@@ -81,20 +88,28 @@ class BeoIRComponent : public Component {
   uint32_t shift_reg_{0};
   uint8_t prev_bit_{0};
 
-  CallbackManager<void(uint8_t, uint8_t, bool)> command_callback_;
+  RepeatMode repeat_mode_{REPEAT_RAW};
+  uint8_t last_address_{0};
+  uint8_t last_command_{0};
+  bool last_link_{false};
+  uint32_t last_command_millis_{0};
+  static const uint32_t REPEAT_WINDOW_MS = 300;
+
+  CallbackManager<void(uint8_t, uint8_t, bool, bool)> command_callback_;
 
   static BeoSymbol classify_ticks_(uint32_t ticks);
   void decoder_reset_();
   bool process_symbol_(BeoSymbol sym, uint8_t &address, uint8_t &command, bool &link);
+  void fire_command_(uint8_t address, uint8_t command, bool link);
 };
 
 // Trigger for on_command automation
-class BeoCommandTrigger : public Trigger<uint8_t, uint8_t, bool> {
+class BeoCommandTrigger : public Trigger<uint8_t, uint8_t, bool, bool> {
  public:
   explicit BeoCommandTrigger(BeoIRComponent *parent) {
     parent->add_on_command_callback(
-        [this](uint8_t address, uint8_t command, bool link) {
-          this->trigger(address, command, link);
+        [this](uint8_t address, uint8_t command, bool link, bool repeat) {
+          this->trigger(address, command, link, repeat);
         });
   }
 };

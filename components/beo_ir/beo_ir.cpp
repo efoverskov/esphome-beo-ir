@@ -69,7 +69,7 @@ void BeoIRComponent::loop() {
       ESP_LOGD(TAG, "B&O: link=%d addr=0x%02X(%s) cmd=0x%02X(%s)",
                link, address, beo_address_name(address),
                command, beo_command_name(command));
-      this->command_callback_.call(address, command, link);
+      this->fire_command_(address, command, link);
     }
   }
 }
@@ -138,10 +138,71 @@ bool BeoIRComponent::process_symbol_(BeoSymbol sym, uint8_t &address,
   return false;
 }
 
+void BeoIRComponent::fire_command_(uint8_t address, uint8_t command, bool link) {
+  uint32_t now = millis();
+
+  if (this->repeat_mode_ == REPEAT_RAW) {
+    this->last_address_ = address;
+    this->last_command_ = command;
+    this->last_link_ = link;
+    this->last_command_millis_ = now;
+    this->command_callback_.call(address, command, link, false);
+    return;
+  }
+
+  // translate / suppress mode: detect and resolve repeats
+  bool is_repeat = false;
+  uint8_t resolved_command = command;
+
+  // Mechanism 1: button-specific repeat code (e.g. YELLOW_REPEAT → YELLOW)
+  uint8_t pilot = beo_repeat_to_pilot(command);
+  if (pilot != 0xFF) {
+    resolved_command = pilot;
+    is_repeat = true;
+  }
+  // Mechanism 3: generic REPEAT (0x75) → resolve to last command
+  else if (command == BEO_CMD_REPEAT) {
+    if (this->last_command_millis_ != 0 &&
+        (now - this->last_command_millis_) < REPEAT_WINDOW_MS) {
+      resolved_command = this->last_command_;
+      address = this->last_address_;
+      link = this->last_link_;
+      is_repeat = true;
+    } else {
+      ESP_LOGD(TAG, "B&O: REPEAT with no recent command, dropping");
+      return;
+    }
+  }
+  // Mechanism 2: repeated identical frame within timing window
+  else if (this->last_command_millis_ != 0 &&
+           address == this->last_address_ &&
+           command == this->last_command_ &&
+           (now - this->last_command_millis_) < REPEAT_WINDOW_MS) {
+    is_repeat = true;
+  }
+
+  this->last_address_ = address;
+  this->last_command_ = resolved_command;
+  this->last_link_ = link;
+  this->last_command_millis_ = now;
+
+  if (this->repeat_mode_ == REPEAT_SUPPRESS && is_repeat) {
+    ESP_LOGD(TAG, "B&O: suppressed repeat cmd=0x%02X(%s)",
+             resolved_command, beo_command_name(resolved_command));
+    return;
+  }
+
+  this->command_callback_.call(address, resolved_command, link, is_repeat);
+}
+
 void BeoIRComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "B&O IR Receiver:");
   ESP_LOGCONFIG(TAG, "  Pin: GPIO%d", this->pin_);
   ESP_LOGCONFIG(TAG, "  PIO: %d", this->pio_ == pio0 ? 0 : 1);
+  const char *mode = "raw";
+  if (this->repeat_mode_ == REPEAT_TRANSLATE) mode = "translate";
+  else if (this->repeat_mode_ == REPEAT_SUPPRESS) mode = "suppress";
+  ESP_LOGCONFIG(TAG, "  Repeat mode: %s", mode);
 }
 
 }  // namespace beo_ir

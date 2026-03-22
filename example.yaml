@@ -44,17 +44,21 @@ external_components:
 beo_ir:
   pin: 15
   pio: 0
+  repeat_mode: translate  # raw | translate | suppress
+  repeat_mode_select:
+    name: "B&O Repeat Mode"
   on_command:
     - then:
         # Log to serial
         - logger.log:
-            format: "B&O: addr=0x%02X(%s) cmd=0x%02X(%s) link=%d"
+            format: "B&O: addr=0x%02X(%s) cmd=0x%02X(%s) link=%d repeat=%d"
             args:
               - address
               - beo_address_name(address)
               - command
               - beo_command_name(command)
               - int(link)
+              - int(repeat)
         # Publish to MQTT via HA service call (mqtt: not supported on RP2040)
         - homeassistant.service:
             service: mqtt.publish
@@ -65,10 +69,12 @@ beo_ir:
                 snprintf(buf, sizeof(buf),
                   "{\"BeoSource\":\"ir\",\"Beolink\":%d,"
                   "\"BeoAddress\":%d,\"BeoAddressName\":\"%s\","
-                  "\"BeoCommand\":%d,\"BeoCommandName\":\"%s\"}",
+                  "\"BeoCommand\":%d,\"BeoCommandName\":\"%s\","
+                  "\"BeoRepeat\":%s}",
                   link ? 1 : 0,
                   address, beo_address_name(address),
-                  command, beo_command_name(command));
+                  command, beo_command_name(command),
+                  repeat ? "true" : "false");
                 return std::string(buf);
 
 # --- I2C IR Eye (PCF8574T) ---

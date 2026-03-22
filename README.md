@@ -86,19 +86,39 @@ See [example.yaml](example.yaml) for a complete configuration including MQTT pub
 
 ### `beo_ir` component
 
-| Option       | Required | Default | Description                                    |
-|--------------|----------|---------|------------------------------------------------|
-| `pin`        | Yes      | —       | GPIO pin connected to the IR data line (0–29)  |
-| `pio`        | No       | `0`     | PIO instance to use (0 or 1)                   |
-| `on_command` | No       | —       | Automation trigger for decoded commands        |
+| Option        | Required | Default | Description                                    |
+|---------------|----------|---------|------------------------------------------------|
+| `pin`         | Yes      | —       | GPIO pin connected to the IR data line (0–29)  |
+| `pio`         | No       | `0`     | PIO instance to use (0 or 1)                   |
+| `repeat_mode` | No       | `raw`   | How to handle held-button repeats (see below)  |
+| `repeat_mode_select` | No | —    | Expose repeat mode as a Select entity in HA     |
+| `on_command`  | No       | —       | Automation trigger for decoded commands         |
+
+### `repeat_mode`
+
+The Beo4 remote signals held buttons in three ways: button-specific repeat codes (e.g., YELLOW_REPEAT), repeated identical frames (e.g., VOLUME_UP sent repeatedly), and a generic REPEAT code (0x75). The `repeat_mode` option controls how these are handled:
+
+| Mode        | Behaviour |
+|-------------|-----------|
+| `raw`       | Pass all codes through as-is. `repeat` is always `false`. |
+| `translate` | Normalize all repeat mechanisms into the original command with `repeat: true`. |
+| `suppress`  | Only fire on the initial press. All repeats are dropped. |
+
+The `repeat_mode_select` option exposes the repeat mode as a Select entity in Home Assistant, allowing you to change it at runtime without reflashing:
+
+```yaml
+repeat_mode_select:
+  name: "B&O Repeat Mode"
+```
 
 ### `on_command` trigger variables
 
-| Variable  | Type      | Description                                   |
-|-----------|-----------|-----------------------------------------------|
-| `address` | `uint8_t` | B&O device address (e.g., 0x01 for AUDIO)     |
-| `command` | `uint8_t` | B&O command code (e.g., 0x60 for VOLUME_UP)   |
-| `link`    | `bool`    | True if the link bit was set                  |
+| Variable  | Type      | Description                                    |
+|-----------|-----------|------------------------------------------------|
+| `address` | `uint8_t` | B&O device address (e.g., 0x01 for AUDIO)      |
+| `command` | `uint8_t` | B&O command code (e.g., 0x60 for VOLUME_UP)    |
+| `link`    | `bool`    | True if the link bit was set                    |
+| `repeat`  | `bool`    | True if this is a repeated press (held button)  |
 
 Helper functions `beo_address_name(address)` and `beo_command_name(command)` return human-readable names for known codes.
 

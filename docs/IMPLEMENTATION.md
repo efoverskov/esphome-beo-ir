@@ -110,6 +110,73 @@ Eye buttons publish to the same `beo2mqtt/command` MQTT topic with `"BeoSource":
 
 ---
 
+## Phase 4: Repeat/Hold Handling — COMPLETE
+
+**Goal:** Properly handle held-down buttons, which the Beo4 signals using repeat codes.
+
+**Status:** Implemented. Three repeat modes (raw/translate/suppress) with optional HA Select entity for runtime switching.
+
+### How B&O repeats work
+
+The Beo4 remote uses three different mechanisms to signal a held button:
+
+**1. Button-specific repeat codes:** Some buttons have a dedicated repeat command code that differs from the initial press. The remote sends the pilot code once, then switches to the repeat code for subsequent frames.
+
+| Pilot code | Repeat code |
+|------------|-------------|
+| UP (0x1E) | UP_REPEAT (0x72) |
+| DOWN (0x1F) | DOWN_REPEAT (0x73) |
+| LEFT (0x32) | LEFT_REPEAT (0x70) |
+| RIGHT (0x34) | RIGHT_REPEAT (0x71) |
+| VOLUME_UP (0x60) | VOLUME_UP_REPEAT (0xB4) |
+| VOLUME_DOWN (0x64) | VOLUME_DOWN_REPEAT (0xB8) |
+| GREEN (0xD5) | GREEN_REPEAT (0x76) |
+| YELLOW (0xD4) | YELLOW_REPEAT (0x77) |
+| BLUE (0xD8) | BLUE_REPEAT (0x78) |
+| RED (0xD9) | RED_REPEAT (0x79) |
+
+**2. Repeated identical frames:** Some buttons simply re-send the same command code. For example, holding VOLUME_UP sends `VOLUME_UP → VOLUME_UP → VOLUME_UP...`. The component must use timing to distinguish a held button from rapid distinct presses.
+
+**3. Generic REPEAT code (0x75):** A single code meaning "repeat whatever was last sent". Used by buttons that don't have their own repeat variant. The component must track the previous command to resolve what REPEAT refers to.
+
+### Configurable behaviour
+
+Add a `repeat_mode` option to the YAML config:
+
+```yaml
+beo_ir:
+  pin: 15
+  pio: 0
+  repeat_mode: translate  # raw | translate | suppress (default: raw)
+```
+
+| Mode | Behaviour |
+|------|-----------|
+| `raw` | Pass all codes through as-is. Automation sees `YELLOW_REPEAT`, `REPEAT`, duplicate `VOLUME_UP` frames, etc. The `repeat` trigger variable is always `false`. |
+| `translate` | Normalize all three repeat mechanisms into repeated original commands with `repeat: true`. E.g. `YELLOW_REPEAT` → `command=YELLOW, repeat=true`. `REPEAT` (0x75) → resolves to previous command with `repeat=true`. Duplicate identical frames within the repeat window → same command with `repeat=true`. |
+| `suppress` | Only fire `on_command` for the initial pilot press. All repeats (of any kind) are dropped. |
+
+In `translate` and `suppress` modes, the `on_command` trigger gains a `repeat` (bool) variable.
+
+### Implementation
+
+- Add a lookup table mapping button-specific repeat codes → pilot codes
+- Track last command + timestamp to:
+  - Resolve the generic REPEAT code (0x75) to the previous command
+  - Detect repeated identical frames (mechanism 2) within a timing window
+- Add `repeat_mode` config option to `__init__.py` and pass to C++
+- Add `repeat` as a 4th trigger variable: `(uint8_t address, uint8_t command, bool link, bool repeat)`
+
+### Phase 4 Test
+
+- Hold YELLOW → in `raw` mode, verify `YELLOW` then `YELLOW_REPEAT` frames appear
+- Hold YELLOW → in `translate` mode, verify repeated `YELLOW` frames with `repeat=true`
+- Hold YELLOW → in `suppress` mode, verify only one `YELLOW` event fires
+- Hold VOLUME_UP → verify repeated `VOLUME_UP` frames are detected via timing
+- Test a button that uses generic REPEAT (0x75) → verify it resolves to the previous command
+
+---
+
 ## Hardware Notes
 
 - B&O IR eye data pin outputs ~5V logic. RP2040 GPIOs max 3.63V. **Requires level shifter** on IR data, SDA, and SCL lines.
