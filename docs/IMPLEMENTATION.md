@@ -85,50 +85,7 @@ See `example.yaml` for the full working config.
 
 ---
 
-## Phase 3: Repeat/Hold Handling
-
-**Goal:** Detect held buttons and optionally suppress repeat commands.
-
-B&O remotes send repeated frames when a button is held. Add debounce logic to the `beo_ir` component:
-
-- Track the last command and timestamp
-- If the same (address, command) arrives within 300ms, mark it as a repeat
-- Add a configurable `suppress_repeats` option to the YAML
-
-```yaml
-beo_ir:
-  pin: 15
-  pio: 0
-  suppress_repeats: true    # optional, default false
-  repeat_threshold_ms: 300  # optional, default 300
-  on_command:
-    # fires only on first press when suppress_repeats is true
-```
-
-When repeats are not suppressed, add a `repeat` boolean to the trigger variables so automations can decide.
-
-### Phase 3 Test
-
-- Hold a button on the Beo4 → verify only one event fires (with `suppress_repeats: true`)
-- Hold a button → verify repeat events are flagged (with `suppress_repeats: false`)
-
----
-
-## Phase 4: LED Status Indicator
-
-**Goal:** Use the Pico W onboard LED to indicate device state.
-
-Pure YAML — ESPHome has built-in status LED support:
-
-```yaml
-status_led:
-  pin:
-    number: LED
-```
-
----
-
-## Phase 5: I2C IR Eye — Button & LED Control (PCF8574T) — COMPLETE
+## Phase 3: I2C IR Eye — Button & LED Control (PCF8574T) — COMPLETE
 
 **Goal:** Interface with the PCF8574T I/O expander on the B&O IR eye to read buttons and control LEDs.
 
