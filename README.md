@@ -183,6 +183,32 @@ The IR eye has a PCF8574T I/O expander with 4 physical buttons and 2 LEDs. I2C m
 
 See [example.yaml](example.yaml) for the full I2C/button/LED configuration.
 
+## Example use case: Beo4 remote → Google TV
+
+This project was built to control a Google TV with Chromecast connected to a Bang & Olufsen BeoVision 11. The BeoVision has no HDMI CEC support, so there is no way to control the Chromecast using the Beo4 remote out of the box.
+
+The setup:
+
+1. A B&O IR eye is placed next to the TV and wired to a Pico W running this component.
+2. Decoded Beo4 commands are published to MQTT via Home Assistant.
+3. A Node-RED flow on the HA host picks up the MQTT messages and translates them into commands for the Google TV's [Android TV Remote](https://www.home-assistant.io/integrations/androidtv_remote/) entity in Home Assistant.
+4. The flow checks two conditions before forwarding commands:
+   - The Google TV media player state is `playing`
+   - The BeoVision 11 (via the [BeoPlay integration](https://github.com/giachello/beoplay)) is on the HDMI input where the Chromecast is connected
+
+Button mapping used:
+
+| Beo4 button | Google TV action |
+|-------------|------------------|
+| NAV_UP / NAV_DOWN / NAV_LEFT / NAV_RIGHT | D-pad navigation |
+| NAV_GO | Select / OK |
+| BACK | Back |
+| PLAY | Play |
+| STOP | Stop |
+| GREEN | Home |
+
+This approach works for any device that exposes a remote entity in Home Assistant — the Beo4 becomes a universal remote through IR → MQTT → Node-RED → HA.
+
 ## License
 
 MIT
