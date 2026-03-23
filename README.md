@@ -51,6 +51,14 @@ The RP2040's PIO state machine counts ticks between falling edges and pushes the
 | I2C SDA  | GP4  |
 | I2C SCL  | GP5  |
 
+### Fitting the Pico inside the IR eye
+
+The Pico W fits inside the IR eye housing — barely. To accommodate the Micro-USB power cable, widen and deepen the cable opening in the bottom of the eye housing. This lets the Micro-USB plug sit snugly and holds the Pico in place.
+
+To avoid shorts against the eye's PCB and components, wrap the Pico board in Kapton tape and tape the level shifter to the Pico board with the same tape.
+
+A 3D-printed enclosure or adapter would be the elegant solution — but tape and a craft knife get the job done.
+
 ## Installation
 
 1. Copy the `components/beo_ir/` directory into your ESPHome config's `components/` folder.
