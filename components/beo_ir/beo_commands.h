@@ -17,7 +17,8 @@ enum BeoAddress : uint8_t {
   BEO_ADDR_CONTROL     = 0x1C,
   BEO_ADDR_SPDEMO      = 0x1D,
   BEO_ADDR_GLOBAL      = 0x7F,
-  BEO_ADDR_NAV         = 0xA1,
+  BEO_ADDR_VIDEO_NAV   = 0xA0,
+  BEO_ADDR_AUDIO_NAV   = 0xA1,
 };
 
 // B&O command codes (from Beomote Commands.h)
@@ -114,7 +115,7 @@ enum BeoCommand : uint8_t {
   BEO_CMD_RED          = 0xD9,
   BEO_CMD_CINEMA_ON    = 0xDA,
   BEO_CMD_CINEMA_OFF   = 0xDB,
-  // Navigation (POV hat on newer Beo4 remotes, address 0xA1)
+  // Navigation (POV hat on newer Beo4 remotes, address 0xA0 VIDEO_NAV / 0xA1 AUDIO_NAV)
   BEO_CMD_NAV_GO       = 0x13,
   BEO_CMD_BACK         = 0x14,
   BEO_CMD_NAV_UP       = 0xCA,
@@ -149,7 +150,8 @@ inline bool is_valid_beo_address(uint8_t address) {
     case BEO_ADDR_CONTROL:
     case BEO_ADDR_SPDEMO:
     case BEO_ADDR_GLOBAL:
-    case BEO_ADDR_NAV:
+    case BEO_ADDR_VIDEO_NAV:
+    case BEO_ADDR_AUDIO_NAV:
       return true;
     default:
       return false;
@@ -171,7 +173,8 @@ inline const char *beo_address_name(uint8_t address) {
     case BEO_ADDR_CONTROL:   return "CONTROL";
     case BEO_ADDR_SPDEMO:    return "SPDEMO";
     case BEO_ADDR_GLOBAL:    return "GLOBAL";
-    case BEO_ADDR_NAV:       return "NAV";
+    case BEO_ADDR_VIDEO_NAV: return "VIDEO_NAV";
+    case BEO_ADDR_AUDIO_NAV: return "AUDIO_NAV";
     default:                 return "UNKNOWN";
   }
 }

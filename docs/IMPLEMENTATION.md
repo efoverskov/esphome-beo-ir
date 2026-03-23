@@ -8,7 +8,7 @@ Custom ESPHome component for decoding Bang & Olufsen IR commands on the Raspberr
 
 **Goal:** Decode B&O IR frames using a PIO state machine and fire ESPHome automations.
 
-**Status:** Working on hardware. Verified decoding of VOLUME_UP, VOLUME_DOWN, YELLOW, GREEN, NAV commands and others.
+**Status:** Working on hardware. Verified decoding of VOLUME_UP, VOLUME_DOWN, YELLOW, GREEN, NAV_UP/DOWN/LEFT/RIGHT commands and others.
 
 ### B&O IR Protocol
 
@@ -87,11 +87,11 @@ See `example.yaml` for the full working config.
 
 ## Phase 3: I2C IR Eye — Button & LED Control (PCF8574T) — COMPLETE
 
-**Goal:** Interface with the PCF8574T I/O expander on the B&O IR eye to read buttons and control LEDs.
+**Goal:** Interface with the PCF8574T I/O expander on the B&O IR eye to read buttons and control LEDs, with repeat/hold handling matching the IR remote behaviour.
 
-**Status:** Pin mapping discovered, buttons and LEDs working.
+**Status:** Pin mapping discovered, buttons and LEDs working. Eye buttons route through the same `fire_command_()` path as IR commands and obey the configured `repeat_mode`.
 
-Uses ESPHome's native `pcf8574` component — no custom driver code needed. See `docs/I2C_NOTES.md` for the discovered pin mapping and `example.yaml` for the full config.
+LEDs use ESPHome's native `pcf8574` component — no custom driver code needed. Buttons are configured as `eye_buttons` in the `beo_ir` component, which polls the PCF8574T pins, debounces input, and generates repeat events for held buttons.
 
 ### Discovered Pin Map
 
@@ -106,7 +106,25 @@ Uses ESPHome's native `pcf8574` component — no custom driver code needed. See 
 | P6 | Standby LED | Output |
 | P7 | Timer LED | Output |
 
-Eye buttons publish to the same `beo2mqtt/command` MQTT topic with `"BeoSource": "eye"`.
+### Eye Button Repeat Handling
+
+Eye buttons are configured in the `beo_ir` component with per-button `repeat` enable/disable:
+
+```yaml
+eye_buttons:
+  - pin: { pcf8574: ir_eye_io, number: 1, mode: INPUT, inverted: true }
+    command: 0x60  # VOLUME_UP
+    repeat: true   # generate repeats when held
+  - pin: { pcf8574: ir_eye_io, number: 3, mode: INPUT, inverted: true }
+    command: 0x35  # GO (Play)
+    repeat: false  # single press only
+```
+
+Timing: 50 ms debounce, 400 ms initial delay before repeats, then 200 ms repeat interval. Repeats fire through the same `fire_command_()` path as IR commands and obey the configured `repeat_mode` (raw/translate/suppress).
+
+The `on_command` trigger includes a `source` variable (`"ir"` or `"eye"`) so automations can distinguish the origin. Eye buttons publish to the same MQTT topic with `"BeoSource": "eye"`.
+
+See `docs/I2C_NOTES.md` for the discovered pin mapping and `example.yaml` for the full config.
 
 ---
 
@@ -165,7 +183,7 @@ In `translate` and `suppress` modes, the `on_command` trigger gains a `repeat` (
   - Resolve the generic REPEAT code (0x75) to the previous command
   - Detect repeated identical frames (mechanism 2) within a timing window
 - Add `repeat_mode` config option to `__init__.py` and pass to C++
-- Add `repeat` as a 4th trigger variable: `(uint8_t address, uint8_t command, bool link, bool repeat)`
+- Trigger variables: `(uint8_t address, uint8_t command, bool link, bool repeat, std::string source)`
 
 ### Phase 4 Test
 

@@ -44,8 +44,17 @@ void BeoIRComponent::setup() {
   pio_sm_set_enabled(this->pio_, this->sm_, true);
 
   this->decoder_reset_();
-  ESP_LOGCONFIG(TAG, "B&O IR Receiver ready on GPIO%d (PIO%d SM%d)",
-                this->pin_, this->pio_ == pio0 ? 0 : 1, this->sm_);
+
+  for (auto &btn : this->eye_buttons_) {
+    btn.pin->setup();
+    btn.raw_state = btn.pin->digital_read();
+    btn.pressed = false;
+    btn.state_change_millis = millis();
+  }
+
+  ESP_LOGCONFIG(TAG, "B&O IR Receiver ready on GPIO%d (PIO%d SM%d), %d eye button(s)",
+                this->pin_, this->pio_ == pio0 ? 0 : 1, this->sm_,
+                (int) this->eye_buttons_.size());
 }
 
 void BeoIRComponent::loop() {
@@ -69,7 +78,41 @@ void BeoIRComponent::loop() {
       ESP_LOGD(TAG, "B&O: link=%d addr=0x%02X(%s) cmd=0x%02X(%s)",
                link, address, beo_address_name(address),
                command, beo_command_name(command));
-      this->fire_command_(address, command, link);
+      this->fire_command_(address, command, link, "ir");
+    }
+  }
+
+  // Poll eye buttons
+  uint32_t now = millis();
+  for (auto &btn : this->eye_buttons_) {
+    bool raw = btn.pin->digital_read();
+
+    // Debounce: track when raw state last changed
+    if (raw != btn.raw_state) {
+      btn.raw_state = raw;
+      btn.state_change_millis = now;
+    }
+
+    uint32_t stable_for = now - btn.state_change_millis;
+    if (stable_for >= EYE_DEBOUNCE_MS && raw != btn.pressed) {
+      btn.pressed = raw;
+      if (btn.pressed) {
+        // Initial press
+        btn.press_millis = now;
+        btn.last_repeat_millis = now;
+        ESP_LOGD(TAG, "Eye: %s pressed", beo_command_name(btn.command));
+        this->fire_command_(btn.address, btn.command, false, "eye");
+      }
+    }
+
+    // Generate repeats while held
+    if (btn.pressed && btn.repeat_enabled) {
+      uint32_t since_press = now - btn.press_millis;
+      uint32_t since_last = now - btn.last_repeat_millis;
+      if (since_press >= EYE_REPEAT_INITIAL_MS && since_last >= EYE_REPEAT_INTERVAL_MS) {
+        btn.last_repeat_millis = now;
+        this->fire_command_(btn.address, btn.command, false, "eye", true);
+      }
     }
   }
 }
@@ -138,7 +181,8 @@ bool BeoIRComponent::process_symbol_(BeoSymbol sym, uint8_t &address,
   return false;
 }
 
-void BeoIRComponent::fire_command_(uint8_t address, uint8_t command, bool link) {
+void BeoIRComponent::fire_command_(uint8_t address, uint8_t command, bool link,
+                                    const std::string &source, bool known_repeat) {
   uint32_t now = millis();
 
   if (this->repeat_mode_ == REPEAT_RAW) {
@@ -146,39 +190,41 @@ void BeoIRComponent::fire_command_(uint8_t address, uint8_t command, bool link) 
     this->last_command_ = command;
     this->last_link_ = link;
     this->last_command_millis_ = now;
-    this->command_callback_.call(address, command, link, false);
+    this->command_callback_.call(address, command, link, false, source);
     return;
   }
 
   // translate / suppress mode: detect and resolve repeats
-  bool is_repeat = false;
+  bool is_repeat = known_repeat;
   uint8_t resolved_command = command;
 
-  // Mechanism 1: button-specific repeat code (e.g. YELLOW_REPEAT → YELLOW)
-  uint8_t pilot = beo_repeat_to_pilot(command);
-  if (pilot != 0xFF) {
-    resolved_command = pilot;
-    is_repeat = true;
-  }
-  // Mechanism 3: generic REPEAT (0x75) → resolve to last command
-  else if (command == BEO_CMD_REPEAT) {
-    if (this->last_command_millis_ != 0 &&
-        (now - this->last_command_millis_) < REPEAT_WINDOW_MS) {
-      resolved_command = this->last_command_;
-      address = this->last_address_;
-      link = this->last_link_;
+  if (!known_repeat) {
+    // Mechanism 1: button-specific repeat code (e.g. YELLOW_REPEAT → YELLOW)
+    uint8_t pilot = beo_repeat_to_pilot(command);
+    if (pilot != 0xFF) {
+      resolved_command = pilot;
       is_repeat = true;
-    } else {
-      ESP_LOGD(TAG, "B&O: REPEAT with no recent command, dropping");
-      return;
     }
-  }
-  // Mechanism 2: repeated identical frame within timing window
-  else if (this->last_command_millis_ != 0 &&
-           address == this->last_address_ &&
-           command == this->last_command_ &&
-           (now - this->last_command_millis_) < REPEAT_WINDOW_MS) {
-    is_repeat = true;
+    // Mechanism 3: generic REPEAT (0x75) → resolve to last command
+    else if (command == BEO_CMD_REPEAT) {
+      if (this->last_command_millis_ != 0 &&
+          (now - this->last_command_millis_) < REPEAT_WINDOW_MS) {
+        resolved_command = this->last_command_;
+        address = this->last_address_;
+        link = this->last_link_;
+        is_repeat = true;
+      } else {
+        ESP_LOGD(TAG, "B&O: REPEAT with no recent command, dropping");
+        return;
+      }
+    }
+    // Mechanism 2: repeated identical frame within timing window
+    else if (this->last_command_millis_ != 0 &&
+             address == this->last_address_ &&
+             command == this->last_command_ &&
+             (now - this->last_command_millis_) < REPEAT_WINDOW_MS) {
+      is_repeat = true;
+    }
   }
 
   this->last_address_ = address;
@@ -192,7 +238,7 @@ void BeoIRComponent::fire_command_(uint8_t address, uint8_t command, bool link) 
     return;
   }
 
-  this->command_callback_.call(address, resolved_command, link, is_repeat);
+  this->command_callback_.call(address, resolved_command, link, is_repeat, source);
 }
 
 void BeoIRComponent::dump_config() {
@@ -203,6 +249,11 @@ void BeoIRComponent::dump_config() {
   if (this->repeat_mode_ == REPEAT_TRANSLATE) mode = "translate";
   else if (this->repeat_mode_ == REPEAT_SUPPRESS) mode = "suppress";
   ESP_LOGCONFIG(TAG, "  Repeat mode: %s", mode);
+  for (auto &btn : this->eye_buttons_) {
+    ESP_LOGCONFIG(TAG, "  Eye button: cmd=0x%02X(%s) addr=0x%02X repeat=%s",
+                  btn.command, beo_command_name(btn.command),
+                  btn.address, btn.repeat_enabled ? "yes" : "no");
+  }
 }
 
 }  // namespace beo_ir

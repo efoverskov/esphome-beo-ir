@@ -1,6 +1,6 @@
 """B&O IR Receiver component for ESPHome (RP2040 PIO)."""
 
-from esphome import automation
+from esphome import automation, pins
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_PIN, CONF_TRIGGER_ID
@@ -20,6 +20,10 @@ CONF_ON_COMMAND = "on_command"
 CONF_PIO = "pio"
 CONF_REPEAT_MODE = "repeat_mode"
 CONF_REPEAT_MODE_SELECT = "repeat_mode_select"
+CONF_EYE_BUTTONS = "eye_buttons"
+CONF_REPEAT = "repeat"
+CONF_COMMAND = "command"
+CONF_ADDRESS = "address"
 
 REPEAT_MODE_OPTIONS = ["raw", "translate", "suppress"]
 
@@ -32,7 +36,16 @@ REPEAT_MODES = {
 
 BeoCommandTrigger = beo_ir_ns.class_(
     "BeoCommandTrigger",
-    automation.Trigger.template(cg.uint8, cg.uint8, cg.bool_, cg.bool_),
+    automation.Trigger.template(cg.uint8, cg.uint8, cg.bool_, cg.bool_, cg.std_string),
+)
+
+EYE_BUTTON_SCHEMA = cv.Schema(
+    {
+        cv.Required(CONF_PIN): pins.gpio_input_pin_schema,
+        cv.Required(CONF_COMMAND): cv.int_range(min=0, max=255),
+        cv.Optional(CONF_ADDRESS, default=0x01): cv.int_range(min=0, max=255),
+        cv.Optional(CONF_REPEAT, default=False): cv.boolean,
+    }
 )
 
 CONFIG_SCHEMA = cv.Schema(
@@ -44,6 +57,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_REPEAT_MODE_SELECT): select_comp.select_schema(
             BeoRepeatModeSelect,
         ),
+        cv.Optional(CONF_EYE_BUTTONS): cv.ensure_list(EYE_BUTTON_SCHEMA),
         cv.Optional(CONF_ON_COMMAND): automation.validate_automation(
             {
                 cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(BeoCommandTrigger),
@@ -73,10 +87,16 @@ async def to_code(config):
                 cg.add(sel.publish_state(name))
                 break
 
+    for btn_conf in config.get(CONF_EYE_BUTTONS, []):
+        pin = await cg.gpio_pin_expression(btn_conf[CONF_PIN])
+        cg.add(var.add_eye_button(
+            pin, btn_conf[CONF_COMMAND], btn_conf[CONF_ADDRESS], btn_conf[CONF_REPEAT]
+        ))
+
     for conf in config.get(CONF_ON_COMMAND, []):
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
         await automation.build_automation(
             trigger,
-            [(cg.uint8, "address"), (cg.uint8, "command"), (cg.bool_, "link"), (cg.bool_, "repeat")],
+            [(cg.uint8, "address"), (cg.uint8, "command"), (cg.bool_, "link"), (cg.bool_, "repeat"), (cg.std_string, "source")],
             conf,
         )

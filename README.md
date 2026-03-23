@@ -69,13 +69,15 @@ beo_ir:
   on_command:
     - then:
         - logger.log:
-            format: "B&O: addr=0x%02X(%s) cmd=0x%02X(%s) link=%d"
+            format: "B&O[%s]: addr=0x%02X(%s) cmd=0x%02X(%s) link=%d repeat=%d"
             args:
+              - source.c_str()
               - address
               - beo_address_name(address)
               - command
               - beo_command_name(command)
               - int(link)
+              - int(repeat)
 ```
 
 3. Compile and flash from the ESPHome dashboard.
@@ -92,6 +94,7 @@ See [example.yaml](example.yaml) for a complete configuration including MQTT pub
 | `pio`         | No       | `0`     | PIO instance to use (0 or 1)                   |
 | `repeat_mode` | No       | `raw`   | How to handle held-button repeats (see below)  |
 | `repeat_mode_select` | No | —    | Expose repeat mode as a Select entity in HA     |
+| `eye_buttons` | No       | —       | List of IR eye physical buttons (see below)    |
 | `on_command`  | No       | —       | Automation trigger for decoded commands         |
 
 ### `repeat_mode`
@@ -111,14 +114,28 @@ repeat_mode_select:
   name: "B&O Repeat Mode"
 ```
 
+### `eye_buttons`
+
+Physical buttons on the IR eye's PCF8574T I/O expander. Each button fires through the same `on_command` trigger as IR commands, with `source` set to `"eye"`. Repeat handling obeys the configured `repeat_mode`.
+
+| Option    | Required | Default | Description                                        |
+|-----------|----------|---------|----------------------------------------------------|
+| `pin`     | Yes      | —       | GPIO pin (supports PCF8574 expander pins)          |
+| `command` | Yes      | —       | B&O command code to fire (0–255)                   |
+| `address` | No       | `0x01`  | B&O address code (default: AUDIO)                  |
+| `repeat`  | No       | `false` | Generate repeat events when held                   |
+
+Timing: 50 ms debounce, 400 ms initial delay before repeats start, then 200 ms repeat interval.
+
 ### `on_command` trigger variables
 
-| Variable  | Type      | Description                                    |
-|-----------|-----------|------------------------------------------------|
-| `address` | `uint8_t` | B&O device address (e.g., 0x01 for AUDIO)      |
-| `command` | `uint8_t` | B&O command code (e.g., 0x60 for VOLUME_UP)    |
-| `link`    | `bool`    | True if the link bit was set                    |
-| `repeat`  | `bool`    | True if this is a repeated press (held button)  |
+| Variable  | Type          | Description                                    |
+|-----------|---------------|------------------------------------------------|
+| `address` | `uint8_t`     | B&O device address (e.g., 0x01 for AUDIO)      |
+| `command` | `uint8_t`     | B&O command code (e.g., 0x60 for VOLUME_UP)    |
+| `link`    | `bool`        | True if the link bit was set                    |
+| `repeat`  | `bool`        | True if this is a repeated press (held button)  |
+| `source`  | `std::string` | `"ir"` for remote commands, `"eye"` for physical buttons |
 
 Helper functions `beo_address_name(address)` and `beo_command_name(command)` return human-readable names for known codes.
 
@@ -134,18 +151,25 @@ The ESPHome `mqtt:` component is not supported on RP2040. The workaround is to u
       payload: !lambda |-
         char buf[256];
         snprintf(buf, sizeof(buf),
-          "{\"BeoSource\":\"ir\",\"Beolink\":%d,"
+          "{\"BeoSource\":\"%s\",\"Beolink\":%d,"
           "\"BeoAddress\":%d,\"BeoAddressName\":\"%s\","
-          "\"BeoCommand\":%d,\"BeoCommandName\":\"%s\"}",
+          "\"BeoCommand\":%d,\"BeoCommandName\":\"%s\","
+          "\"BeoRepeat\":%s}",
+          source.c_str(),
           link ? 1 : 0,
           address, beo_address_name(address),
-          command, beo_command_name(command));
+          command, beo_command_name(command),
+          repeat ? "true" : "false");
         return std::string(buf);
 ```
 
 ## IR eye buttons and LEDs
 
-The IR eye's PCF8574T I/O expander is supported via ESPHome's native `pcf8574` component — no custom code needed. I2C must run at 10 kHz for reliable communication through the level shifter.
+The IR eye has a PCF8574T I/O expander with 4 physical buttons and 2 LEDs. I2C must run at 10 kHz for reliable communication through the level shifter.
+
+**Buttons** are configured via `eye_buttons` in the `beo_ir` component. They fire through the same `on_command` trigger as IR commands, with debouncing and configurable repeat handling that obeys the `repeat_mode` setting.
+
+**LEDs** use ESPHome's native `pcf8574` GPIO switch — no custom code needed.
 
 | PCF8574T Pin | Direction | Function                  |
 |--------------|-----------|---------------------------|

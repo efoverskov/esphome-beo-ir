@@ -47,12 +47,26 @@ beo_ir:
   repeat_mode: translate  # raw | translate | suppress
   repeat_mode_select:
     name: "B&O Repeat Mode"
+  eye_buttons:
+    - pin: { pcf8574: ir_eye_io, number: 0, mode: INPUT, inverted: true }
+      command: 0xF0  # EYE_TIMER
+      repeat: false
+    - pin: { pcf8574: ir_eye_io, number: 1, mode: INPUT, inverted: true }
+      command: 0x60  # VOLUME_UP
+      repeat: true
+    - pin: { pcf8574: ir_eye_io, number: 2, mode: INPUT, inverted: true }
+      command: 0x64  # VOLUME_DOWN
+      repeat: true
+    - pin: { pcf8574: ir_eye_io, number: 3, mode: INPUT, inverted: true }
+      command: 0x35  # GO (Play)
+      repeat: false
   on_command:
     - then:
         # Log to serial
         - logger.log:
-            format: "B&O: addr=0x%02X(%s) cmd=0x%02X(%s) link=%d repeat=%d"
+            format: "B&O[%s]: addr=0x%02X(%s) cmd=0x%02X(%s) link=%d repeat=%d"
             args:
+              - source.c_str()
               - address
               - beo_address_name(address)
               - command
@@ -67,10 +81,11 @@ beo_ir:
               payload: !lambda |-
                 char buf[256];
                 snprintf(buf, sizeof(buf),
-                  "{\"BeoSource\":\"ir\",\"Beolink\":%d,"
+                  "{\"BeoSource\":\"%s\",\"Beolink\":%d,"
                   "\"BeoAddress\":%d,\"BeoAddressName\":\"%s\","
                   "\"BeoCommand\":%d,\"BeoCommandName\":\"%s\","
                   "\"BeoRepeat\":%s}",
+                  source.c_str(),
                   link ? 1 : 0,
                   address, beo_address_name(address),
                   command, beo_command_name(command),
@@ -90,64 +105,6 @@ pcf8574:
   - id: ir_eye_io
     address: 0x20
     pcf8575: false
-
-# Eye buttons — publish to same MQTT topic with source "eye"
-binary_sensor:
-  - platform: gpio
-    name: "B&O Timer (Eye)"
-    pin: { pcf8574: ir_eye_io, number: 0, mode: INPUT, inverted: true }
-    on_press:
-      then:
-        - homeassistant.service:
-            service: mqtt.publish
-            data:
-              topic: beo2mqtt/command
-              payload: !lambda |-
-                return "{\"BeoSource\":\"eye\",\"Beolink\":0,"
-                       "\"BeoAddress\":1,\"BeoAddressName\":\"AUDIO\","
-                       "\"BeoCommand\":240,\"BeoCommandName\":\"EYE_TIMER\"}";
-
-  - platform: gpio
-    name: "B&O Volume Up (Eye)"
-    pin: { pcf8574: ir_eye_io, number: 1, mode: INPUT, inverted: true }
-    on_press:
-      then:
-        - homeassistant.service:
-            service: mqtt.publish
-            data:
-              topic: beo2mqtt/command
-              payload: !lambda |-
-                return "{\"BeoSource\":\"eye\",\"Beolink\":0,"
-                       "\"BeoAddress\":1,\"BeoAddressName\":\"AUDIO\","
-                       "\"BeoCommand\":96,\"BeoCommandName\":\"VOLUME_UP\"}";
-
-  - platform: gpio
-    name: "B&O Volume Down (Eye)"
-    pin: { pcf8574: ir_eye_io, number: 2, mode: INPUT, inverted: true }
-    on_press:
-      then:
-        - homeassistant.service:
-            service: mqtt.publish
-            data:
-              topic: beo2mqtt/command
-              payload: !lambda |-
-                return "{\"BeoSource\":\"eye\",\"Beolink\":0,"
-                       "\"BeoAddress\":1,\"BeoAddressName\":\"AUDIO\","
-                       "\"BeoCommand\":100,\"BeoCommandName\":\"VOLUME_DOWN\"}";
-
-  - platform: gpio
-    name: "B&O Play (Eye)"
-    pin: { pcf8574: ir_eye_io, number: 3, mode: INPUT, inverted: true }
-    on_press:
-      then:
-        - homeassistant.service:
-            service: mqtt.publish
-            data:
-              topic: beo2mqtt/command
-              payload: !lambda |-
-                return "{\"BeoSource\":\"eye\",\"Beolink\":0,"
-                       "\"BeoAddress\":1,\"BeoAddressName\":\"AUDIO\","
-                       "\"BeoCommand\":53,\"BeoCommandName\":\"GO\"}";
 
 # Eye LEDs
 switch:

@@ -4,8 +4,11 @@
 
 #include "esphome/core/component.h"
 #include "esphome/core/automation.h"
+#include "esphome/core/hal.h"
 
 #include <hardware/pio.h>
+#include <string>
+#include <vector>
 
 namespace esphome {
 namespace beo_ir {
@@ -63,6 +66,18 @@ enum RepeatMode : uint8_t {
   REPEAT_SUPPRESS,
 };
 
+struct EyeButton {
+  GPIOPin *pin;
+  uint8_t command;
+  uint8_t address;
+  bool repeat_enabled;
+  bool pressed{false};
+  bool raw_state{false};
+  uint32_t state_change_millis{0};
+  uint32_t press_millis{0};
+  uint32_t last_repeat_millis{0};
+};
+
 class BeoIRComponent : public Component {
  public:
   void setup() override;
@@ -74,7 +89,11 @@ class BeoIRComponent : public Component {
   void set_pio(int pio_num) { this->pio_ = pio_num ? pio1 : pio0; }
   void set_repeat_mode(RepeatMode mode) { this->repeat_mode_ = mode; }
 
-  void add_on_command_callback(std::function<void(uint8_t, uint8_t, bool, bool)> &&cb) {
+  void add_eye_button(GPIOPin *pin, uint8_t command, uint8_t address, bool repeat_enabled) {
+    this->eye_buttons_.push_back({pin, command, address, repeat_enabled});
+  }
+
+  void add_on_command_callback(std::function<void(uint8_t, uint8_t, bool, bool, std::string)> &&cb) {
     this->command_callback_.add(std::move(cb));
   }
 
@@ -95,21 +114,27 @@ class BeoIRComponent : public Component {
   uint32_t last_command_millis_{0};
   static const uint32_t REPEAT_WINDOW_MS = 300;
 
-  CallbackManager<void(uint8_t, uint8_t, bool, bool)> command_callback_;
+  std::vector<EyeButton> eye_buttons_;
+  static const uint32_t EYE_DEBOUNCE_MS = 50;
+  static const uint32_t EYE_REPEAT_INITIAL_MS = 400;
+  static const uint32_t EYE_REPEAT_INTERVAL_MS = 200;
+
+  CallbackManager<void(uint8_t, uint8_t, bool, bool, std::string)> command_callback_;
 
   static BeoSymbol classify_ticks_(uint32_t ticks);
   void decoder_reset_();
   bool process_symbol_(BeoSymbol sym, uint8_t &address, uint8_t &command, bool &link);
-  void fire_command_(uint8_t address, uint8_t command, bool link);
+  void fire_command_(uint8_t address, uint8_t command, bool link,
+                     const std::string &source, bool known_repeat = false);
 };
 
 // Trigger for on_command automation
-class BeoCommandTrigger : public Trigger<uint8_t, uint8_t, bool, bool> {
+class BeoCommandTrigger : public Trigger<uint8_t, uint8_t, bool, bool, std::string> {
  public:
   explicit BeoCommandTrigger(BeoIRComponent *parent) {
     parent->add_on_command_callback(
-        [this](uint8_t address, uint8_t command, bool link, bool repeat) {
-          this->trigger(address, command, link, repeat);
+        [this](uint8_t address, uint8_t command, bool link, bool repeat, std::string source) {
+          this->trigger(address, command, link, repeat, source);
         });
   }
 };
